@@ -2,17 +2,13 @@
 One-time script to seed the database with historical data.
 
 Data sources:
-  - BTS (Bureau of Transportation Statistics): real historical flights with actual delay data
-    Download from: https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ
-    Required fields: FL_DATE, OP_CARRIER, ORIGIN, DEST, DEP_TIME, CRS_DEP_TIME,
-                     DEP_DELAY, WEATHER_DELAY, CARRIER_DELAY, NAS_DELAY,
-                     SECURITY_DELAY, LATE_AIRCRAFT_DELAY
-    Save CSV as: data/bts_flights.csv
+  - 2015 Flight Delays dataset (Kaggle/BTS):
+    Place the flights.csv file at: data/archive/flights.csv
 
   - Open-Meteo archive: real historical hourly weather (free, no key required)
 
 Run order:
-  1. Download BTS CSV and place in data/bts_flights.csv
+  1. Place data/archive/flights.csv in the data directory
   2. python scripts/seed_database.py
   3. python model/train.py
 """
@@ -25,17 +21,18 @@ import openmeteo_requests
 import requests_cache
 from retry_requests import retry
 import pandas as pd
+import psycopg2
 from datetime import datetime, timedelta
 from pathlib import Path
-from load_postgres import insert_weather, insert_flight
+from load_postgres import insert_weather, get_conn
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DATA_DIR = Path(__file__).parent.parent / "data"
-BTS_CSV  = DATA_DIR / "bts_flights.csv"
+DATA_DIR    = Path(__file__).parent.parent / "data"
+FLIGHTS_CSV = DATA_DIR / "archive" / "flights.csv"
 
-# BTS IATA codes → ICAO + coordinates
+# IATA codes → ICAO + coordinates
 AIRPORTS = {
     "JFK": {"icao": "KJFK", "lat": 40.639, "lon": -73.779},
     "ORD": {"icao": "KORD", "lat": 41.978, "lon": -87.904},
@@ -97,91 +94,126 @@ def seed_weather(iata: str, start_date: str, end_date: str):
     print(f"Weather seeded: {icao} ({iata}) {start_date} → {end_date}")
 
 
-def seed_flights_from_bts():
+def seed_flights_from_csv():
     """
-    Load real historical flight data from BTS CSV.
+    Load real historical flight data from 2015 Flight Delays dataset.
+    Expected at: data/archive/flights.csv
 
-    Download from:
-    https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ
-
-    Required columns: FL_DATE, OP_CARRIER, ORIGIN, DEST, CRS_DEP_TIME,
-                      DEP_TIME, DEP_DELAY, WEATHER_DELAY, CARRIER_DELAY,
-                      NAS_DELAY, SECURITY_DELAY, LATE_AIRCRAFT_DELAY
+    Columns used: YEAR, MONTH, DAY, AIRLINE, ORIGIN_AIRPORT, DESTINATION_AIRPORT,
+                  SCHEDULED_DEPARTURE, DEPARTURE_TIME, DEPARTURE_DELAY,
+                  WEATHER_DELAY, AIRLINE_DELAY, AIR_SYSTEM_DELAY,
+                  SECURITY_DELAY, LATE_AIRCRAFT_DELAY
     """
-    if not BTS_CSV.exists():
-        print(f"ERROR: {BTS_CSV} not found.")
-        print("Download BTS data from:")
-        print("  https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ")
-        print("Save as data/bts_flights.csv and re-run.")
+    if not FLIGHTS_CSV.exists():
+        print(f"ERROR: {FLIGHTS_CSV} not found.")
         return
 
-    df = pd.read_csv(BTS_CSV, low_memory=False)
-    df.columns = [c.strip() for c in df.columns]
-
-    # Filter to our airports only
     iata_codes = list(AIRPORTS.keys())
-    df = df[df["ORIGIN"].isin(iata_codes)].copy()
 
-    # Parse departure datetime
-    def parse_dep_time(row):
+    # Read only needed columns, filter to our airports
+    cols = [
+        "YEAR", "MONTH", "DAY", "AIRLINE",
+        "ORIGIN_AIRPORT", "DESTINATION_AIRPORT",
+        "SCHEDULED_DEPARTURE", "DEPARTURE_TIME", "DEPARTURE_DELAY",
+        "WEATHER_DELAY", "AIRLINE_DELAY", "AIR_SYSTEM_DELAY",
+        "SECURITY_DELAY", "LATE_AIRCRAFT_DELAY"
+    ]
+    df = pd.read_csv(FLIGHTS_CSV, usecols=cols, low_memory=False)
+    df = df[df["ORIGIN_AIRPORT"].isin(iata_codes)].copy()
+    print(f"Loaded {len(df)} flights for {iata_codes}")
+
+    def parse_datetime(row):
         try:
-            t = str(int(row["CRS_DEP_TIME"])).zfill(4)
-            return datetime.strptime(f"{row['FL_DATE']} {t}", "%Y-%m-%d %H%M")
+            t = str(int(row["SCHEDULED_DEPARTURE"])).zfill(4)
+            return datetime(int(row["YEAR"]), int(row["MONTH"]), int(row["DAY"]),
+                            int(t[:2]), int(t[2:]))
         except Exception:
             return None
 
-    df["scheduled_dep"] = df.apply(parse_dep_time, axis=1)
-
-    def parse_actual_time(row):
+    def parse_actual(row):
         try:
-            t = str(int(row["DEP_TIME"])).zfill(4)
-            return datetime.strptime(f"{row['FL_DATE']} {t}", "%Y-%m-%d %H%M")
+            t = str(int(row["DEPARTURE_TIME"])).zfill(4)
+            return datetime(int(row["YEAR"]), int(row["MONTH"]), int(row["DAY"]),
+                            int(t[:2]), int(t[2:]))
         except Exception:
             return None
 
-    df["actual_dep"] = df.apply(parse_actual_time, axis=1)
+    df["scheduled_dep"] = df.apply(parse_datetime, axis=1)
+    df["actual_dep"]    = df.apply(parse_actual, axis=1)
 
-    count = 0
+    from uuid import uuid4
+
+    def to_int(val):
+        try:
+            return int(val) if pd.notna(val) else None
+        except Exception:
+            return None
+
+    rows = []
     for _, row in df.iterrows():
-        iata = row["ORIGIN"]
+        iata = row["ORIGIN_AIRPORT"]
         icao = AIRPORTS[iata]["icao"]
+        scheduled = row["scheduled_dep"] if pd.notna(row["scheduled_dep"]) else None
+        actual    = row["actual_dep"]    if pd.notna(row["actual_dep"])    else None
+        rows.append((
+            str(uuid4()),
+            None,
+            scheduled,
+            icao,
+            str(row["DESTINATION_AIRPORT"])[:10] if pd.notna(row.get("DESTINATION_AIRPORT")) else None,
+            scheduled,
+            actual,
+            to_int(row.get("DEPARTURE_DELAY")),
+            to_int(row.get("WEATHER_DELAY")),
+            to_int(row.get("AIRLINE_DELAY")),
+            to_int(row.get("AIR_SYSTEM_DELAY")),
+            to_int(row.get("SECURITY_DELAY")),
+            to_int(row.get("LATE_AIRCRAFT_DELAY")),
+            "departed",
+            str(row.get("AIRLINE", ""))[:100]
+        ))
 
-        insert_flight({
-            "icao24": None,
-            "date": row["scheduled_dep"],
-            "actual_departure": row["actual_dep"],
-            "scheduled_departure": row["scheduled_dep"],
-            "departure_airport": icao,
-            "arrival_airport": str(row.get("DEST", ""))[:10] if pd.notna(row.get("DEST")) else None,
-            "delay_minutes": int(row["DEP_DELAY"]) if pd.notna(row.get("DEP_DELAY")) else None,
-            "weather_delay_min": int(row["WEATHER_DELAY"]) if pd.notna(row.get("WEATHER_DELAY")) else None,
-            "carrier_delay_min": int(row["CARRIER_DELAY"]) if pd.notna(row.get("CARRIER_DELAY")) else None,
-            "nas_delay_min": int(row["NAS_DELAY"]) if pd.notna(row.get("NAS_DELAY")) else None,
-            "security_delay_min": int(row["SECURITY_DELAY"]) if pd.notna(row.get("SECURITY_DELAY")) else None,
-            "late_aircraft_delay_min": int(row["LATE_AIRCRAFT_DELAY"]) if pd.notna(row.get("LATE_AIRCRAFT_DELAY")) else None,
-            "flight_status": "departed",
-            "airline": str(row.get("OP_CARRIER", ""))[:100]
-        })
-        count += 1
+    BATCH = 1000
+    conn = get_conn()
+    cur  = conn.cursor()
+    inserted = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        cur.executemany("""
+            INSERT INTO flights (
+                flight_id, icao24, date, departure_airport, arrival_airport,
+                scheduled_departure, actual_departure, delay_minutes,
+                weather_delay_min, carrier_delay_min, nas_delay_min,
+                security_delay_min, late_aircraft_delay_min,
+                flight_status, airline
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (flight_id) DO NOTHING
+        """, batch)
+        conn.commit()
+        inserted += len(batch)
+        print(f"  Inserted {inserted}/{len(rows)} flights...", end="\r")
+    cur.close()
+    conn.close()
 
-    print(f"Flights seeded from BTS: {count} rows")
+    print(f"\nFlights seeded: {inserted} rows")
 
 
 if __name__ == "__main__":
-    # Determine date range from BTS CSV
-    if not BTS_CSV.exists():
-        seed_flights_from_bts()  # will print instructions and exit
+    if not FLIGHTS_CSV.exists():
+        print(f"ERROR: {FLIGHTS_CSV} not found.")
+        print("Place the flights.csv file at data/archive/flights.csv and re-run.")
         sys.exit(1)
 
-    df_dates = pd.read_csv(BTS_CSV, usecols=["FL_DATE"], low_memory=False)
-    start_date = pd.to_datetime(df_dates["FL_DATE"]).min().strftime("%Y-%m-%d")
-    end_date   = pd.to_datetime(df_dates["FL_DATE"]).max().strftime("%Y-%m-%d")
+    # 2015 dataset covers full year 2015
+    start_date = "2015-01-01"
+    end_date   = "2015-12-31"
 
     print(f"Seeding weather for {start_date} → {end_date}")
     for iata in AIRPORTS:
         seed_weather(iata, start_date, end_date)
 
-    print("Seeding flights from BTS CSV...")
-    seed_flights_from_bts()
+    print("Seeding flights from CSV...")
+    seed_flights_from_csv()
 
     print("Database seeding complete.")

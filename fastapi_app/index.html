@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight Delay Predictor</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --amber: #F59E0B;
+    --amber-glow: rgba(245,158,11,0.12);
+    --amber-glow-strong: rgba(245,158,11,0.22);
+    --red-alert: #EF4444;
+    --green-ok: #10B981;
+    --surface: #0A0C10;
+    --surface2: #0F1117;
+    --surface3: #161920;
+    --surface4: #1C2030;
+    --border: rgba(245,158,11,0.18);
+    --border-strong: rgba(245,158,11,0.35);
+    --text-primary: #F3F0E8;
+    --text-muted: #7A7560;
+    --font-display: 'Syne', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+  }
+
+  body {
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  .app {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 3rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    animation: fadeDown 0.6s ease both;
+  }
+  .header-left { display: flex; flex-direction: column; gap: 4px; }
+  .header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--green-ok);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .header-badge::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green-ok);
+    animation: pulse 2s infinite;
+  }
+  .header-title {
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+    line-height: 1.05;
+  }
+  .header-title span { color: var(--amber); }
+  .header-sub {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+  .header-radar { width: 80px; height: 80px; flex-shrink: 0; }
+  .header-radar svg { width: 100%; height: 100%; }
+  .radar-sweep { transform-origin: 32px 32px; animation: radarSpin 3s linear infinite; }
+
+  /* ── Main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+    animation: fadeUp 0.7s ease 0.1s both;
+  }
+  .panel {
+    background: var(--surface2);
+    padding: 1.5rem;
+  }
+  .panel-full { grid-column: 1 / -1; }
+
+  /* ── Panel label ── */
+  .panel-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-label::before { content: ''; width: 20px; height: 1px; background: var(--amber); flex-shrink: 0; }
+
+  /* ── Airport selector ── */
+  .airport-selector {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .airport-btn {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    cursor: pointer;
+    padding: 0.75rem;
+    text-align: left;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .airport-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .airport-btn.active {
+    background: var(--amber-glow);
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  .airport-code { font-size: 18px; font-weight: 700; display: block; line-height: 1; margin-bottom: 3px; }
+  .airport-name { font-size: 9px; letter-spacing: 0.06em; opacity: 0.7; display: block; }
+
+  /* ── Date / time controls ── */
+  .controls-row { display: flex; gap: 12px; align-items: flex-start; }
+  .control-group { flex: 1; }
+  .control-group label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .control-group input,
+  .control-group select {
+    width: 100%;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .control-group input:focus,
+  .control-group select:focus { border-color: var(--amber); }
+  .control-group select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23F59E0B' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+  .time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+  .time-btn {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 8px 4px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+  }
+  .time-btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .time-btn.active { background: var(--amber-glow); border-color: var(--amber); color: var(--amber); }
+
+  /* ── Delay context ── */
+  .context-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .context-item { display: flex; flex-direction: column; gap: 4px; }
+  .context-item label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .context-item input {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+  .context-item input:focus { border-color: var(--amber); }
+  .context-hint {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    color: var(--text-muted);
+    opacity: 0.5;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── CTA ── */
+  .cta-btn {
+    width: 100%;
+    background: var(--amber);
+    color: #0A0C10;
+    border: none;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    animation: fadeUp 0.7s ease 0.2s both;
+  }
+  .cta-btn:hover:not(:disabled) { background: #FCD34D; }
+  .cta-btn:active:not(:disabled) { transform: scale(0.995); }
+  .cta-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .cta-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* ── Error message ── */
+  .error-msg {
+    display: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--red-alert);
+    background: rgba(239,68,68,0.07);
+    border: 1px solid rgba(239,68,68,0.3);
+    padding: 12px 16px;
+    margin-top: 12px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Results ── */
+  .result-section { margin-top: 1.5rem; animation: fadeUp 0.5s ease both; }
+
+  .weather-forecast-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    background: var(--surface3);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .weather-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-bottom: none;
+  }
+  .weather-cell { background: var(--surface2); padding: 1.25rem 1rem; text-align: center; }
+  .weather-icon { font-size: 18px; color: var(--text-muted); margin-bottom: 8px; display: block; }
+  .weather-val {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: block;
+    line-height: 1;
+  }
+  .weather-unit {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    display: block;
+    margin-top: 4px;
+  }
+
+  /* ── Probability panel ── */
+  .prob-panel {
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2rem;
+    align-items: center;
+  }
+  .prob-gauge { position: relative; width: 120px; height: 120px; flex-shrink: 0; }
+  .prob-gauge svg { width: 120px; height: 120px; }
+  .prob-gauge-inner {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+  .prob-pct { font-family: var(--font-mono); font-size: 26px; font-weight: 700; line-height: 1; display: block; }
+  .prob-pct.low    { color: var(--green-ok); }
+  .prob-pct.medium { color: var(--amber); }
+  .prob-pct.high   { color: var(--red-alert); }
+  .prob-label-small { font-family: var(--font-mono); font-size: 9px; color: var(--text-muted); letter-spacing: 0.08em; display: block; margin-top: 2px; }
+  .prob-status { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 6px; }
+  .prob-status.low    { color: var(--green-ok); }
+  .prob-status.medium { color: var(--amber); }
+  .prob-status.high   { color: var(--red-alert); }
+  .prob-desc { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem; }
+  .prob-bar-wrap { height: 4px; background: var(--surface4); overflow: hidden; max-width: 300px; }
+  .prob-bar-fill { height: 100%; transition: width 1s ease; }
+  .prob-bar-fill.low    { background: var(--green-ok); }
+  .prob-bar-fill.medium { background: var(--amber); }
+  .prob-bar-fill.high   { background: var(--red-alert); }
+
+  /* ── Factors panel ── */
+  .factors-panel { border: 1px solid var(--border); border-top: none; }
+  .factors-toggle {
+    width: 100%;
+    background: var(--surface3);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 10px 16px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.15s;
+  }
+  .factors-toggle:hover { color: var(--amber); }
+  .factors-toggle-arrow { margin-left: auto; transition: transform 0.25s ease; color: var(--amber); }
+  .factors-toggle-arrow.open { transform: rotate(180deg); }
+  .factors-table { display: none; }
+  .factors-table.open { display: block; }
+  .factor-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 1px solid rgba(245,158,11,0.07);
+  }
+  .factor-row:last-child { border-bottom: none; }
+  .factor-cell { padding: 10px 16px; font-family: var(--font-mono); font-size: 11px; }
+  .factor-name { color: var(--text-muted); }
+  .factor-val  { color: var(--text-primary); font-weight: 700; letter-spacing: 0.04em; }
+  .model-note {
+    border-top: 1px solid var(--border);
+    padding: 8px 16px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    background: var(--surface3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .model-note::before { content: ''; width: 4px; height: 4px; border-radius: 50%; background: var(--amber); flex-shrink: 0; }
+
+  /* ── Animations ── */
+  @keyframes fadeDown  { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes fadeUp    { from { opacity:0; transform:translateY(12px); }  to { opacity:1; transform:translateY(0); } }
+  @keyframes pulse     { 0%, 100% { opacity:1; } 50% { opacity:0.3; } }
+  @keyframes radarSpin { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+
+  @media (max-width: 640px) {
+    .main-grid { grid-template-columns: 1fr; }
+    .context-grid { grid-template-columns: 1fr; }
+    .prob-panel { grid-template-columns: 1fr; }
+    .header-title { font-size: 1.8rem; }
+    .weather-strip { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <div class="header-left">
+      <span class="header-badge">LIVE SYSTEM ONLINE</span>
+      <h1 class="header-title">FLIGHT <span>DELAY</span><br>PREDICTOR</h1>
+      <p class="header-sub">REAL BTS DATA &middot; OPEN-METEO FORECAST &middot; XGBOOST MODEL</p>
+    </div>
+    <div class="header-radar">
+      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="32" cy="32" r="30" stroke="#F59E0B" stroke-width="0.5" opacity="0.3"/>
+        <circle cx="32" cy="32" r="20" stroke="#F59E0B" stroke-width="0.5" opacity="0.25"/>
+        <circle cx="32" cy="32" r="10" stroke="#F59E0B" stroke-width="0.5" opacity="0.2"/>
+        <line x1="2" y1="32" x2="62" y2="32" stroke="#F59E0B" stroke-width="0.5" opacity="0.15"/>
+        <line x1="32" y1="2" x2="32" y2="62" stroke="#F59E0B" stroke-width="0.5" opacity="0.15"/>
+        <g class="radar-sweep">
+          <path d="M32 32 L32 2 A30 30 0 0 1 62 32 Z" fill="url(#sweepGrad)" opacity="0.5"/>
+        </g>
+        <circle cx="32" cy="32" r="2" fill="#F59E0B"/>
+        <circle cx="44" cy="22" r="1.5" fill="#10B981" opacity="0.8"/>
+        <circle cx="20" cy="38" r="1.5" fill="#F59E0B" opacity="0.6"/>
+        <defs>
+          <radialGradient id="sweepGrad" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(32 32) rotate(-90) scale(30)">
+            <stop offset="0" stop-color="#F59E0B" stop-opacity="0.7"/>
+            <stop offset="1" stop-color="#F59E0B" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+      </svg>
+    </div>
+  </div>
+
+  <!-- ── Main input grid ── -->
+  <div class="main-grid">
+
+    <!-- Airport -->
+    <div class="panel">
+      <div class="panel-label">ORIGIN AIRPORT</div>
+      <div class="airport-selector" id="airportGrid">
+        <button class="airport-btn active" data-code="JFK" onclick="selectAirport(this)">
+          <span class="airport-code">JFK</span>
+          <span class="airport-name">JOHN F. KENNEDY</span>
+        </button>
+        <button class="airport-btn" data-code="ORD" onclick="selectAirport(this)">
+          <span class="airport-code">ORD</span>
+          <span class="airport-name">O'HARE INTL</span>
+        </button>
+        <button class="airport-btn" data-code="DEN" onclick="selectAirport(this)">
+          <span class="airport-code">DEN</span>
+          <span class="airport-name">DENVER INTL</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Date + Time -->
+    <div class="panel">
+      <div class="panel-label">DEPARTURE</div>
+      <div class="controls-row">
+        <div class="control-group" style="flex:2">
+          <label>DATE</label>
+          <input type="date" id="depDate"/>
+        </div>
+        <div class="control-group" style="flex:2">
+          <label>UTC HOUR</label>
+          <select id="depTime" onchange="syncTimeBtns()"></select>
+        </div>
+      </div>
+      <div class="time-grid">
+        <button class="time-btn" data-time="09:00" onclick="setQuickTime(this,'09:00')">09:00</button>
+        <button class="time-btn" data-time="12:00" onclick="setQuickTime(this,'12:00')">12:00</button>
+        <button class="time-btn" data-time="16:00" onclick="setQuickTime(this,'16:00')">16:00</button>
+        <button class="time-btn" data-time="18:00" onclick="setQuickTime(this,'18:00')">18:00</button>
+      </div>
+    </div>
+
+    <!-- Delay context -->
+    <div class="panel panel-full">
+      <div class="panel-label">
+        KNOWN DELAY CONTEXT
+        <span class="context-hint">&mdash; OPTIONAL &middot; ENTER IF VISIBLE IN AIRLINE APP</span>
+      </div>
+      <div class="context-grid">
+        <div class="context-item">
+          <label>WEATHER DELAY (MIN)</label>
+          <input type="number" id="weatherDelay" placeholder="0" min="0" max="500">
+        </div>
+        <div class="context-item">
+          <label>CARRIER DELAY (MIN)</label>
+          <input type="number" id="carrierDelay" placeholder="0" min="0" max="500">
+        </div>
+        <div class="context-item">
+          <label>NAS DELAY (MIN)</label>
+          <input type="number" id="nasDelay" placeholder="0" min="0" max="500">
+        </div>
+        <div class="context-item">
+          <label>LATE AIRCRAFT (MIN)</label>
+          <input type="number" id="lateAircraft" placeholder="0" min="0" max="500">
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end main-grid -->
+
+  <!-- ── CTA ── -->
+  <button class="cta-btn" id="ctaBtn" onclick="runPrediction()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+    </svg>
+    RUN DELAY ANALYSIS
+  </button>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- ── Results ── -->
+  <div class="result-section" id="resultSection" style="display:none">
+
+    <div class="weather-forecast-label" id="forecastLabel">
+      &#x25BA; FORECAST &middot; &mdash; &middot; &mdash;
+    </div>
+
+    <div class="weather-strip">
+      <div class="weather-cell">
+        <span class="weather-icon"><i class="fa-solid fa-temperature-half"></i></span>
+        <span class="weather-val" id="wTemp">&mdash;</span>
+        <span class="weather-unit">TEMP &deg;C</span>
+      </div>
+      <div class="weather-cell">
+        <span class="weather-icon"><i class="fa-solid fa-wind"></i></span>
+        <span class="weather-val" id="wWind">&mdash;</span>
+        <span class="weather-unit">WIND KM/H</span>
+      </div>
+      <div class="weather-cell">
+        <span class="weather-icon"><i class="fa-solid fa-cloud-rain"></i></span>
+        <span class="weather-val" id="wRain">&mdash;</span>
+        <span class="weather-unit">RAIN MM/H</span>
+      </div>
+      <div class="weather-cell">
+        <span class="weather-icon"><i class="fa-solid fa-snowflake"></i></span>
+        <span class="weather-val" id="wSnow">&mdash;</span>
+        <span class="weather-unit">SNOW MM/H</span>
+      </div>
+    </div>
+
+    <div class="prob-panel">
+      <div class="prob-gauge">
+        <svg viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(245,158,11,0.1)" stroke-width="8"/>
+          <circle id="gaugeArc" cx="60" cy="60" r="45" fill="none"
+            stroke="#10B981" stroke-width="8"
+            stroke-dasharray="283" stroke-dashoffset="283"
+            stroke-linecap="round"
+            transform="rotate(-90 60 60)"
+            style="transition: stroke-dashoffset 1.2s ease, stroke 0.4s ease;"/>
+        </svg>
+        <div class="prob-gauge-inner">
+          <span class="prob-pct low" id="probPct">&mdash;</span>
+          <span class="prob-label-small">DELAY PROB</span>
+        </div>
+      </div>
+      <div>
+        <div class="prob-status low" id="probStatus">AWAITING INPUT</div>
+        <div class="prob-desc" id="probDesc">&mdash;</div>
+        <div class="prob-bar-wrap">
+          <div class="prob-bar-fill low" id="probBar" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="factors-panel">
+      <button class="factors-toggle" onclick="toggleFactors(this)">
+        <i class="fa-solid fa-chart-bar"></i>
+        WHAT DROVE THIS PREDICTION
+        <span class="factors-toggle-arrow" id="factorsArrow">&#x25BC;</span>
+      </button>
+      <div class="factors-table" id="factorsTable">
+        <div class="factor-row">
+          <div class="factor-cell factor-name">TEMPERATURE</div>
+          <div class="factor-cell factor-val" id="fTemp">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">WIND SPEED</div>
+          <div class="factor-cell factor-val" id="fWind">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">RAINFALL</div>
+          <div class="factor-cell factor-val" id="fRain">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">SNOWFALL</div>
+          <div class="factor-cell factor-val" id="fSnow">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">DEPARTURE HOUR</div>
+          <div class="factor-cell factor-val" id="fHour">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">MONTH</div>
+          <div class="factor-cell factor-val" id="fMonth">&mdash;</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">WEATHER DELAY CTX</div>
+          <div class="factor-cell factor-val" id="fWd">0 MIN</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">CARRIER DELAY CTX</div>
+          <div class="factor-cell factor-val" id="fCd">0 MIN</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">NAS DELAY CTX</div>
+          <div class="factor-cell factor-val" id="fNd">0 MIN</div>
+        </div>
+        <div class="factor-row">
+          <div class="factor-cell factor-name">LATE AIRCRAFT CTX</div>
+          <div class="factor-cell factor-val" id="fLa">0 MIN</div>
+        </div>
+      </div>
+      <div class="model-note">
+        MODEL: XGBOOST &middot; TRAINED ON 2015 BTS FLIGHT DATA (JFK, ORD, DEN) &middot; BEST BY ROC-AUC
+      </div>
+    </div>
+
+  </div><!-- end result-section -->
+
+</div><!-- end app -->
+
+<script>
+  const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  let selectedAirport = 'JFK';
+  const CTA_HTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> RUN DELAY ANALYSIS`;
+
+  // ── Init ──
+  (function init() {
+    // Set default date to tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 15);
+    const fmt = d => d.toISOString().split('T')[0];
+    const depDateEl = document.getElementById('depDate');
+    depDateEl.value = fmt(tomorrow);
+    depDateEl.min   = fmt(new Date());
+    depDateEl.max   = fmt(maxDate);
+
+    // Populate hour select (all 24h)
+    const sel = document.getElementById('depTime');
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      opt.value = h.toString().padStart(2,'0') + ':00';
+      opt.textContent = h.toString().padStart(2,'0') + ':00';
+      if (h === 12) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    syncTimeBtns();
+  })();
+
+  function selectAirport(btn) {
+    document.querySelectorAll('.airport-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedAirport = btn.dataset.code;
+  }
+
+  function setQuickTime(btn, time) {
+    document.getElementById('depTime').value = time;
+    syncTimeBtns();
+  }
+
+  function syncTimeBtns() {
+    const val = document.getElementById('depTime').value;
+    document.querySelectorAll('.time-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.time === val);
+    });
+  }
+
+  function toggleFactors(btn) {
+    const table = document.getElementById('factorsTable');
+    const arrow = document.getElementById('factorsArrow');
+    table.classList.toggle('open');
+    arrow.classList.toggle('open');
+  }
+
+  async function runPrediction() {
+    const dateVal = document.getElementById('depDate').value;
+    const timeVal = document.getElementById('depTime').value;
+    const hour    = parseInt(timeVal.split(':')[0]);
+    const wdVal   = parseInt(document.getElementById('weatherDelay').value)  || 0;
+    const cdVal   = parseInt(document.getElementById('carrierDelay').value)  || 0;
+    const ndVal   = parseInt(document.getElementById('nasDelay').value)      || 0;
+    const laVal   = parseInt(document.getElementById('lateAircraft').value)  || 0;
+
+    const btn = document.getElementById('ctaBtn');
+    const errEl = document.getElementById('errorMsg');
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'ANALYZING\u2026';
+
+    try {
+      const res = await fetch('/predict', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          airport: selectedAirport,
+          date: dateVal,
+          hour: hour,
+          weather_delay: wdVal,
+          carrier_delay: cdVal,
+          nas_delay: ndVal,
+          late_aircraft: laVal,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
+      }
+
+      const data = await res.json();
+      showResults(data, dateVal, timeVal, hour, wdVal, cdVal, ndVal, laVal);
+    } catch (err) {
+      errEl.textContent = 'ERROR: ' + err.message;
+      errEl.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = CTA_HTML;
+    }
+  }
+
+  function showResults(data, dateVal, timeVal, hour, wdVal, cdVal, ndVal, laVal) {
+    const dateObj  = new Date(dateVal + 'T00:00:00');
+    const monthStr = MONTHS[dateObj.getMonth()];
+    const pct      = parseFloat((data.probability * 100).toFixed(1));
+
+    // Show section
+    const rs = document.getElementById('resultSection');
+    rs.style.display = 'block';
+
+    // Forecast label
+    document.getElementById('forecastLabel').innerHTML =
+      `&#x25BA; FORECAST &middot; ${dateVal} AT ${timeVal} UTC &middot; ${data.icao}`;
+
+    // Weather values
+    document.getElementById('wTemp').textContent = data.temperature.toFixed(1);
+    document.getElementById('wWind').textContent = data.wind_speed.toFixed(1);
+    document.getElementById('wRain').textContent = data.rain.toFixed(2);
+    document.getElementById('wSnow').textContent = data.snow.toFixed(2);
+
+    // Risk class
+    let cls, statusText, descText, arcColor;
+    if (pct < 25) {
+      cls = 'low';    arcColor = '#10B981';
+      statusText = 'LOW DELAY RISK';
+      descText   = 'Conditions look favorable. On-time departure is likely.';
+    } else if (pct < 55) {
+      cls = 'medium'; arcColor = '#F59E0B';
+      statusText = 'MODERATE DELAY RISK';
+      descText   = 'Elevated probability. Monitor your flight status closer to departure.';
+    } else {
+      cls = 'high';   arcColor = '#EF4444';
+      statusText = 'HIGH DELAY RISK';
+      descText   = 'Significant delay likelihood. Check airline status and allow extra buffer.';
+    }
+
+    // Gauge
+    const arc = document.getElementById('gaugeArc');
+    arc.style.stroke = arcColor;
+    arc.style.strokeDashoffset = (283 - (pct / 100) * 283).toFixed(2);
+
+    // Labels
+    const pctEl    = document.getElementById('probPct');
+    const statusEl = document.getElementById('probStatus');
+    const barEl    = document.getElementById('probBar');
+
+    pctEl.textContent     = pct + '%';
+    pctEl.className       = 'prob-pct ' + cls;
+    statusEl.textContent  = statusText;
+    statusEl.className    = 'prob-status ' + cls;
+    barEl.style.width     = pct + '%';
+    barEl.className       = 'prob-bar-fill ' + cls;
+    document.getElementById('probDesc').textContent = descText;
+
+    // Factor table
+    document.getElementById('fTemp').textContent  = data.temperature.toFixed(1) + ' \u00B0C';
+    document.getElementById('fWind').textContent  = data.wind_speed.toFixed(1) + ' KM/H';
+    document.getElementById('fRain').textContent  = data.rain.toFixed(2) + ' MM/H';
+    document.getElementById('fSnow').textContent  = data.snow.toFixed(2) + ' MM/H';
+    document.getElementById('fHour').textContent  = timeVal + ' UTC';
+    document.getElementById('fMonth').textContent = monthStr;
+    document.getElementById('fWd').textContent    = wdVal + ' MIN';
+    document.getElementById('fCd').textContent    = cdVal + ' MIN';
+    document.getElementById('fNd').textContent    = ndVal + ' MIN';
+    document.getElementById('fLa').textContent    = laVal + ' MIN';
+
+    rs.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+</script>
+</body>
+</html>
