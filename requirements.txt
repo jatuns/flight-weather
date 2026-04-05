@@ -1,0 +1,15 @@
+requests
+psycopg2-binary
+pandas
+scipy
+seaborn
+matplotlib
+scikit-learn
+xgboost
+prefect
+streamlit
+python-dotenv
+sqlalchemy
+openmeteo-requests
+requests-cache
+retry-requests
