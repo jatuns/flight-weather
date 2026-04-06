@@ -1,4 +1,26 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Flight Weather Project — Claude Context
+
+## Commands
+
+```bash
+# Seed database (run once, from repo root)
+python scripts/seed_database.py
+
+# Train / retrain ML models
+python model/train.py
+
+# Run Streamlit app locally
+streamlit run streamlit_app/app.py
+
+# Start live pipeline (Prefect, every 6 hours) — must run from pipeline/ dir
+cd pipeline && python prefect_flow.py
+```
+
+> **Note:** `prefect_flow.py` uses bare module imports (`from fetch_flights import ...`), so it must be invoked from the `pipeline/` directory.
 
 ## Project Goal
 End-to-end data analytics portfolio project. Collects real flight + weather data, stores in PostgreSQL, analyzes delay patterns, trains and compares ML models (Baseline, Logistic Regression, Random Forest, XGBoost), and serves predictions via Streamlit.
@@ -18,7 +40,8 @@ End-to-end data analytics portfolio project. Collects real flight + weather data
 ```
 flight-weather-project/
 ├── data/
-│   └── bts_flights.csv          # downloaded manually from BTS, gitignored
+│   └── archive/
+│       └── flights.csv          # Kaggle 2015 Flight Delays dataset, gitignored
 ├── pipeline/
 │   ├── fetch_flights.py
 │   ├── fetch_weather.py
@@ -63,12 +86,14 @@ Unique constraint: `uq_weather_airport_ts` on `(airport, timestamp)`
 | ORD  | KORD | Chicago | 41.978 | -87.904 |
 | DEN  | KDEN | Denver | 39.856 | -104.674 |
 
-## BTS Data Download
-URL: https://www.transtats.bts.gov/DL_SelectFields.aspx?gnoyr_VQ=FGJ
-Required fields: FL_DATE, OP_CARRIER, ORIGIN, DEST, CRS_DEP_TIME, DEP_TIME,
-                 DEP_DELAY, WEATHER_DELAY, CARRIER_DELAY, NAS_DELAY,
-                 SECURITY_DELAY, LATE_AIRCRAFT_DELAY
-Save as: data/bts_flights.csv (gitignored due to size)
+## Seed Flight Data
+`scripts/seed_database.py` uses the **Kaggle 2015 Flight Delays dataset** (not transtats BTS download).
+Expected path: `data/archive/flights.csv` (gitignored due to size).
+Columns consumed: `YEAR, MONTH, DAY, AIRLINE, ORIGIN_AIRPORT, DESTINATION_AIRPORT,
+SCHEDULED_DEPARTURE, DEPARTURE_TIME, DEPARTURE_DELAY, WEATHER_DELAY, AIRLINE_DELAY,
+AIR_SYSTEM_DELAY, SECURITY_DELAY, LATE_AIRCRAFT_DELAY`
+
+Column mapping into DB: `AIRLINE_DELAY` → `carrier_delay_min`, `AIR_SYSTEM_DELAY` → `nas_delay_min`
 
 ## Critical Rules
 - Never call AviationStack — removed from project
@@ -88,7 +113,7 @@ PREFECT_API_KEY, PREFECT_API_URL  (optional, only for Prefect Cloud)
 ## Setup Order
 1. Create DB + run schema.sql
 2. Fill .env
-3. Download BTS CSV → save as data/bts_flights.csv
+3. Download Kaggle 2015 Flight Delays CSV → save as data/archive/flights.csv
 4. Run scripts/seed_database.py
 5. Run model/train.py
 6. Test streamlit_app/app.py locally
