@@ -4,11 +4,14 @@ from uuid import uuid4
 
 
 def get_conn():
+    host = os.getenv("DB_HOST", "localhost")
+    sslmode = "require" if host != "localhost" else "prefer"
     return psycopg2.connect(
-        host=os.getenv("DB_HOST", "localhost"),
+        host=host,
         dbname=os.getenv("DB_NAME", "flight_weather"),
         user=os.getenv("DB_USER", "postgres"),
-        password=os.getenv("DB_PASSWORD")
+        password=os.getenv("DB_PASSWORD"),
+        sslmode=sslmode
     )
 
 

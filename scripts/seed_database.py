@@ -69,6 +69,7 @@ def seed_weather(iata: str, start_date: str, end_date: str):
         "wind_speed_unit": "kmh"
     }
 
+    print(f"  Fetching weather data for {iata}...")
     responses = om.weather_api("https://archive-api.open-meteo.com/v1/archive", params=params)
     hourly = responses[0].Hourly()
 
@@ -79,19 +80,33 @@ def seed_weather(iata: str, start_date: str, end_date: str):
         inclusive="left"
     )
 
+    rows = []
     for i, ts in enumerate(times):
         code = int(hourly.Variables(4).ValuesAsNumpy()[i])
-        insert_weather({
-            "airport": icao,
-            "timestamp": ts.to_pydatetime().replace(tzinfo=None),
-            "temperature": float(hourly.Variables(0).ValuesAsNumpy()[i]),
-            "wind_speed":  float(hourly.Variables(1).ValuesAsNumpy()[i]),
-            "visibility":  None,
-            "rain":        float(hourly.Variables(2).ValuesAsNumpy()[i]),
-            "snow":        float(hourly.Variables(3).ValuesAsNumpy()[i]),
-            "weather_description": wmo_code_to_description(code)
-        })
-    print(f"Weather seeded: {icao} ({iata}) {start_date} → {end_date}")
+        rows.append((
+            icao,
+            ts.to_pydatetime().replace(tzinfo=None),
+            float(hourly.Variables(0).ValuesAsNumpy()[i]),
+            float(hourly.Variables(1).ValuesAsNumpy()[i]),
+            None,
+            float(hourly.Variables(2).ValuesAsNumpy()[i]),
+            float(hourly.Variables(3).ValuesAsNumpy()[i]),
+            wmo_code_to_description(code)
+        ))
+
+    print(f"  Inserting {len(rows)} rows for {iata}...")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.executemany("""
+        INSERT INTO weather (airport, timestamp, temperature, wind_speed,
+                             visibility, rain, snow, weather_description)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (airport, timestamp) DO NOTHING
+    """, rows)
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"  Weather seeded: {icao} ({iata}) {start_date} → {end_date}")
 
 
 def seed_flights_from_csv():
