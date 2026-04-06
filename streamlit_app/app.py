@@ -150,7 +150,18 @@ hr { border-color: rgba(245,158,11,0.12) !important; }
 .f-val  { color: #F3F0E8; font-weight: 700; padding: .55rem 1.4rem; letter-spacing: .04em; }
 .model-note { font-family: 'Space Mono',monospace; font-size: .62rem; color: #3d3b2f; letter-spacing: .08em; text-transform: uppercase; padding: .7rem 1.4rem; border-top: 1px solid rgba(245,158,11,0.08); background: #161920; display: flex; align-items: center; gap: .5rem; }
 .model-note::before { content: ''; display: inline-block; width: 4px; height: 4px; background: #F59E0B; border-radius: 50%; flex-shrink: 0; }
-@media (max-width: 640px) { .prob-panel { grid-template-columns: 1fr; } .wx-strip { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 640px) {
+    .prob-panel { grid-template-columns: 1fr; }
+    .wx-strip { grid-template-columns: repeat(2,1fr); }
+    [data-testid="stColumn"] { flex: 1 1 calc(50% - 0.5rem) !important; min-width: calc(50% - 0.5rem) !important; }
+    .cockpit-panel { height: auto !important; }
+    .main .block-container { padding: 0 1rem 4rem; }
+}
+@media (max-width: 400px) {
+    [data-testid="stColumn"] { flex: 1 1 100% !important; min-width: 100% !important; }
+    .radar-wrap { display: none !important; }
+    .main .block-container { padding: 0 0.5rem 4rem; }
+}
 """
 
 components.html(f"""<script>
@@ -174,7 +185,7 @@ components.html(f"""<script>
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="display:flex;justify-content:space-between;align-items:center;
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;
             padding:2.5rem 0 2rem;border-bottom:1px solid rgba(245,158,11,0.15);
             margin-bottom:1.5rem">
   <div>
@@ -197,7 +208,7 @@ st.markdown("""
   </div>
 
   <!-- Radar SVG -->
-  <div style="flex-shrink:0">
+  <div class="radar-wrap" style="flex-shrink:0">
     <svg viewBox="0 0 80 80" width="90" height="90">
       <defs>
         <radialGradient id="rg" cx="40" cy="40" r="36" gradientUnits="userSpaceOnUse">
