@@ -15,6 +15,34 @@ def get_conn():
     )
 
 
+def get_recent_weather(airport: str) -> dict | None:
+    """Return cached weather from DB if fetched within the last hour, else None."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT temperature, wind_speed, visibility, rain, snow, weather_description, timestamp
+        FROM weather
+        WHERE airport = %s AND timestamp >= NOW() - INTERVAL '1 hour'
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """, (airport,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return None
+    return {
+        "airport": airport,
+        "timestamp": row[6],
+        "temperature": row[0],
+        "wind_speed": row[1],
+        "visibility": row[2],
+        "rain": row[3],
+        "snow": row[4],
+        "weather_description": row[5],
+    }
+
+
 def insert_weather(weather: dict):
     conn = get_conn()
     cur = conn.cursor()

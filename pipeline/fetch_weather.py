@@ -22,13 +22,28 @@ def wmo_code_to_description(code: int) -> str:
 
 
 def fetch_weather(airport: str) -> dict:
-    """Fetch current weather from Open-Meteo (free, no API key)."""
+    """Fetch current weather from Open-Meteo (free, no API key).
+
+    Checks the database first to avoid redundant API calls on Render,
+    where the file-based cache does not persist across restarts.
+    """
     if airport not in AIRPORT_COORDS:
         raise ValueError(f"No coordinates for airport: {airport}")
 
+    # Return cached DB row if we already have data from the last hour
+    try:
+        from load_postgres import get_recent_weather
+        cached = get_recent_weather(airport)
+        if cached is not None:
+            print(f"[weather] {airport}: using cached DB row from {cached['timestamp']}")
+            return cached
+    except Exception as e:
+        print(f"[weather] {airport}: DB cache check failed ({e}), falling back to API")
+
     lat, lon = AIRPORT_COORDS[airport]
-    cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
-    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
+    # Memory-only cache (expire_after=3600) — avoids stale file cache issues on Render
+    cache_session = requests_cache.CachedSession(backend="memory", expire_after=3600)
+    retry_session = retry(cache_session, retries=2, backoff_factor=0.5)
     om = openmeteo_requests.Client(session=retry_session)
 
     params = {
